@@ -5,7 +5,6 @@ using Microsoft.Extensions.Configuration;
 public class Program
 {
     private static DiscordSocketClient client = new();
-    public static string? FollowedUser;
     public static async Task Main()
     {
         var config = new ConfigurationBuilder()
@@ -25,9 +24,9 @@ public class Program
     public static async Task Client_Ready()
     {
         var globalCommand = new SlashCommandBuilder();
-        globalCommand.WithName("top");
+        globalCommand.WithName("order-by-reactions");
         globalCommand.WithDescription("View forum posts sorted by reaction count");
-        globalCommand.AddOption("channel", ApplicationCommandOptionType.Channel, "hmm");
+        globalCommand.AddOption("channel", ApplicationCommandOptionType.Channel, "choose a forum channel");
 
         await client.CreateGlobalApplicationCommandAsync(globalCommand.Build());
     }
@@ -35,38 +34,46 @@ public class Program
     {
         switch (command.Data.Name)
         {
-            case "top":
-                await HandleTop(command);
+            case "order-by-reactions":
+                await HandleOrderByReactions(command);
                 break;
         }
     }
-    private static async Task HandleTop(SocketSlashCommand command)
+    private static async Task HandleOrderByReactions(SocketSlashCommand command)
     {
-
         await command.DeferAsync();
         var channelOption = command.Data.Options.FirstOrDefault(o => o.Name == "channel");
-        if (channelOption != null)
+        if (channelOption == null || channelOption.Value == null)
         {
-            var channel = channelOption.Value as SocketForumChannel;
-            if (channel != null)
+            await command.FollowupAsync("OrderByReactions failed");
+            return;
+        }
+
+        var channel = channelOption.Value as SocketForumChannel;
+        if (channel == null)
+        {
+            await command.FollowupAsync("OrderByReactions failed");
+            return;
+        }
+
+        var threadReactionCounts = new Dictionary<string, int>();
+
+        var threads = await channel.GetActiveThreadsAsync();
+        foreach (var thread in threads)
+        {
+            var messages = await thread.GetMessagesAsync(1).FlattenAsync();
+            var firstMessage = messages.FirstOrDefault();
+            if (firstMessage != null)
             {
-                var threads = await channel.GetActiveThreadsAsync();
-                foreach (var thread in threads)
-                {
-                    Console.WriteLine(thread);
-                    Console.WriteLine(thread.Id);
-                    Console.WriteLine(thread.CreatedAt);
-                    var messages = await thread.GetMessagesAsync(1).FlattenAsync();
-                    var firstMessage = messages.FirstOrDefault();
-                    if (firstMessage != null)
-                    {
-                        int totalReactionCount = firstMessage.Reactions.Sum(r => r.Value.ReactionCount);
-                        Console.WriteLine($"The first post in the thread has {totalReactionCount} reactions.");
-                    }
-                }
+                int totalReactionCount = firstMessage.Reactions.Sum(r => r.Value.ReactionCount);
+                threadReactionCounts.Add($"<#{thread.Id}>", totalReactionCount);
             }
         }
-        await command.FollowupAsync("yaaay");
+
+        var sortedReactionCounts = threadReactionCounts.OrderByDescending(kvp => kvp.Value);
+        string response = string.Join(Environment.NewLine, sortedReactionCounts.Select(kvp => $"{kvp.Key}: Reactions: {kvp.Value}"));
+
+        await command.FollowupAsync(response);
     }
     private static Task Log(LogMessage msg)
     {
