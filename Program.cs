@@ -72,7 +72,8 @@ public class Program
 
 
             var sortedMessageCounts = threadMessageCounts.OrderByDescending(kvp => kvp.Value);
-            string response = string.Join(Environment.NewLine, sortedMessageCounts.Select(kvp => $"{kvp.Key}: Messages: {kvp.Value}"));
+            var first20Dictionary = sortedMessageCounts.Take(20).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            string response = string.Join(Environment.NewLine, first20Dictionary.Select(kvp => $"{kvp.Key}: Comments: {kvp.Value}"));
 
             await command.FollowupAsync(response);
         }
