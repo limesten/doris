@@ -24,9 +24,9 @@ public class Program
     public static async Task Client_Ready()
     {
         var globalCommand = new SlashCommandBuilder();
-        globalCommand.WithName("order-by-reactions");
-        globalCommand.WithDescription("View forum posts sorted by reaction count");
-        globalCommand.AddOption("channel", ApplicationCommandOptionType.Channel, "choose a forum channel");
+        globalCommand.WithName("most-commented-threads");
+        globalCommand.WithDescription("View forum threads sorted by the most comments");
+        globalCommand.AddOption("forum-channel", ApplicationCommandOptionType.Channel, "choose a forum channel", isRequired: true, channelTypes: new List<ChannelType> { ChannelType.Forum });
 
         await client.CreateGlobalApplicationCommandAsync(globalCommand.Build());
     }
@@ -34,46 +34,53 @@ public class Program
     {
         switch (command.Data.Name)
         {
-            case "order-by-reactions":
-                await HandleOrderByReactions(command);
+            case "most-commented-threads":
+                await HandleMostCommentedThreads(command);
                 break;
         }
     }
-    private static async Task HandleOrderByReactions(SocketSlashCommand command)
+    private static async Task HandleMostCommentedThreads(SocketSlashCommand command)
     {
-        await command.DeferAsync();
-        var channelOption = command.Data.Options.FirstOrDefault(o => o.Name == "channel");
-        if (channelOption == null || channelOption.Value == null)
+        try
         {
-            await command.FollowupAsync("OrderByReactions failed");
-            return;
-        }
-
-        var channel = channelOption.Value as SocketForumChannel;
-        if (channel == null)
-        {
-            await command.FollowupAsync("OrderByReactions failed");
-            return;
-        }
-
-        var threadReactionCounts = new Dictionary<string, int>();
-
-        var threads = await channel.GetActiveThreadsAsync();
-        foreach (var thread in threads)
-        {
-            var messages = await thread.GetMessagesAsync(1).FlattenAsync();
-            var firstMessage = messages.FirstOrDefault();
-            if (firstMessage != null)
+            await command.DeferAsync();
+            var channelOption = command.Data.Options.FirstOrDefault(o => o.Name == "forum-channel");
+            if (channelOption == null || channelOption.Value == null)
             {
-                int totalReactionCount = firstMessage.Reactions.Sum(r => r.Value.ReactionCount);
-                threadReactionCounts.Add($"<#{thread.Id}>", totalReactionCount);
+                throw new NullReferenceException("channelOption or channelOption.Value was null");
             }
+
+            var channel = channelOption.Value as SocketForumChannel;
+            if (channel == null)
+            {
+                throw new NullReferenceException("channel was null");
+            }
+
+            var threadMessageCounts = new Dictionary<string, int>();
+
+            var activeThreads = await channel.GetActiveThreadsAsync();
+            foreach (var thread in activeThreads)
+            {
+                threadMessageCounts.Add($"<#{thread.Id}>", thread.MessageCount + 1);
+            }
+
+            var archivedThreads = await channel.GetPublicArchivedThreadsAsync();
+            foreach (var thread in archivedThreads)
+            {
+                threadMessageCounts.Add($"<#{thread.Id}>", thread.MessageCount + 1);
+            }
+
+
+            var sortedMessageCounts = threadMessageCounts.OrderByDescending(kvp => kvp.Value);
+            string response = string.Join(Environment.NewLine, sortedMessageCounts.Select(kvp => $"{kvp.Key}: Messages: {kvp.Value}"));
+
+            await command.FollowupAsync(response);
         }
-
-        var sortedReactionCounts = threadReactionCounts.OrderByDescending(kvp => kvp.Value);
-        string response = string.Join(Environment.NewLine, sortedReactionCounts.Select(kvp => $"{kvp.Key}: Reactions: {kvp.Value}"));
-
-        await command.FollowupAsync(response);
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred in HandleOrderByReactions: {ex.Message}");
+            await command.FollowupAsync("An error occurred while processing your request.");
+        }
     }
     private static Task Log(LogMessage msg)
     {
